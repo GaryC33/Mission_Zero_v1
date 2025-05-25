@@ -1,0 +1,32 @@
+<section id="programmingPanel" class="bg-slate-700 p-6 rounded-xl shadow-2xl flex flex-col overflow-y-auto h-full">
+    <h2 id="commandPanelTitle" class="text-2xl orbitron font-semibold mb-6 text-sky-300 text-center">Panneau de Commande</h2>
+
+    <div class="mb-8 flex flex-col items-center">
+        <h3 class="text-lg font-medium mb-3 text-gray-300 orbitron">Contrôles du Rover:</h3>
+        <div class="d-pad grid grid-cols-3 grid-rows-3 w-[150px] h-[150px] gap-1">
+            <div></div> <button id="cmd_btn_forward" data-command-type="cmd_forward" class="control-button bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-2xl flex justify-center items-center" title="Avancer">⬆️</button>
+            <div></div> <button id="cmd_btn_turn_left" data-command-type="cmd_turn_left" class="control-button bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg text-2xl flex justify-center items-center" title="Tourner à Gauche">⬅️</button>
+            <div class="bg-slate-600 rounded-lg"></div> <button id="cmd_btn_turn_right" data-command-type="cmd_turn_right" class="control-button bg-green-500 hover:bg-green-600 text-white rounded-lg text-2xl flex justify-center items-center" title="Tourner à Droite">➡️</button>
+
+            <div></div> <div></div> <div></div> </div>
+    </div>
+
+    <div>
+        <h3 class="text-lg font-medium mb-3 text-gray-300 orbitron">Séquence Programmée:</h3>
+        <div id="programmedSequenceDisplay" class="drop-zone bg-slate-600 p-3 rounded-lg min-h-[60px] space-x-2 overflow-x-auto whitespace-nowrap flex items-center">
+            </div>
+    </div>
+
+    <div class="mt-auto pt-8 space-y-4">
+        <button id="analyzeFragmentsButton" class="w-full bg-purple-600 hover:bg-purple-700 text-white orbitron font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out control-button text-lg flex items-center justify-center" disabled>
+            Analyser les Fragments ✨
+            <span id="analyzeSpinner" class="loading-spinner ml-2 border-4 border-t-4 border-gray-200 border-t-purple-500 rounded-full w-5 h-5 animate-spin" style="display: none;"></span>
+        </button>
+        <button id="startSimulationButton" class="w-full bg-green-500 hover:bg-green-600 text-white orbitron font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out control-button text-lg">
+            LANCER SIMULATION
+        </button>
+        <button id="resetProgramButton" class="w-full bg-red-600 hover:bg-red-700 text-white orbitron font-semibold py-3 px-4 rounded-lg shadow-md hover:shadow-lg transition-all duration-150 ease-in-out control-button text-lg">
+            RÉINITIALISER
+        </button>
+    </div>
+</section>

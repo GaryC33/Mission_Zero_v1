@@ -14,7 +14,7 @@ const DIALOG_CONFIG = {
     elya: {
         borderColor: 'border-sky-500', // Bleu ciel pour Elya
         characterName: 'Elya',
-        // imageUrl: './assets/elya.svg' // Si vous avez une image pour Elya
+        imageUrl: './assets/elya1.svg' // Si vous avez une image pour Elya
     },
     isaac: {
         borderColor: 'border-red-600', // Rouge/Bordeaux pour Isaac
