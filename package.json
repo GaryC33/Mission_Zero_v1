@@ -1,0 +1,17 @@
+{
+  "name": "hermes-rover-mission-zero",
+  "version": "1.0.0",
+"scripts": {
+  "build:css": "tailwindcss -i ./src/styles.css -o ./dist/output.css --minify",
+  "watch:css": "tailwindcss -i ./src/styles.css -o ./dist/output.css --watch",
+  "start": "serve ."
+},
+  "devDependencies": {
+    "autoprefixer": "^10.4.14",
+    "postcss": "^8.4.24",
+    "serve": "^14.2.4",
+    "tailwindcss": "^3.3.2"
+  
+  }
+
+}
