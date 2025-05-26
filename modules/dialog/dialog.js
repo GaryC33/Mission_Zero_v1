@@ -14,12 +14,12 @@ const DIALOG_CONFIG = {
     elya: {
         borderColor: 'border-sky-500', // Bleu ciel pour Elya
         characterName: 'Elya',
-        imageUrl: './assets/elya1.svg' // Si vous avez une image pour Elya
+        imageUrl: '../assets/elya1.svg' // Si vous avez une image pour Elya
     },
     isaac: {
         borderColor: 'border-red-600', // Rouge/Bordeaux pour Isaac
         characterName: 'Isaac',
-        imageUrl: './assets/isaac1.svg' // Chemin vers l'image d'Isaac
+        imageUrl: '../assets/isaac1.svg' // Chemin vers l'image d'Isaac
     },
     console: {
         borderColor: 'border-slate-300', // Blanc/Gris clair pour la Console Ermes

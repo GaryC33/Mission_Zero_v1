@@ -3,16 +3,7 @@ import { loadDialog, showDialog, hideDialog } from '../dialog/dialog.js';
 import { COMMAND_DETAILS, DIALOG_TYPES } from '../utils/constants.js';
 import { createRover, moveRover, turnRoverLeft, turnRoverRight, resetRoverTrail } from '../rover/rover.js';
 import { createFragments, checkFragmentCollision, resetFragments } from '../fragment/fragment.js';
-// Note: CommandPanel et SimulationPanel sont chargés dans main.js et leurs instances/fonctions seront passées
-// ou nous utiliserons un EventBus pour la communication. Pour l'instant, on passera des références si besoin.
 
-// Pour l'instant, on va supposer que les instances des modules UI sont accessibles
-// ou que le GameController a des méthodes pour les mettre à jour directement.
-// Plus tard, on pourra affiner avec un EventBus si la communication directe devient trop complexe.
-let commandPanelUI = null; // Référence aux fonctions exportées par command-panel.js
-let simulationUI = null; // Référence aux fonctions exportées par simulation.js
-
-// Fallback Elya messages (sera surchargé par les données du niveau)
 const DEFAULT_ELYA_MESSAGES = [
   "Excellent travail, Isaac ! Les fragments semblent émettre une sorte d'énergie. Ermès la capte. Poursuis les tests.",
   "Fascinant. Les données entrantes sont de plus en plus complexes. Ces Sphères... elles ne sont pas inertes.",
@@ -20,139 +11,174 @@ const DEFAULT_ELYA_MESSAGES = [
   "Les tests sont concluants. Ermès est prêt pour des missions plus complexes. Le mystère des Sphères reste entier."
 ];
 
-
 export class GameController {
-    constructor(/* eventBus */) {
-        // this.eventBus = eventBus; // Si on utilise un EventBus
-
+    constructor() {
         this.currentLevelId = 1;
         this.currentLevelData = null;
         this.rover = null;
         this.fragments = [];
         this.collectedFragmentsCount = 0;
         this.totalFragmentsToCollectThisLevel = 0;
-
-        this.isSimulating = false; // Vrai lorsque le rover exécute une séquence ou est en mouvement direct actif
-        this.missionActive = false; // Vrai lorsqu'un niveau est chargé et prêt à être joué
-
+        this.isSimulating = false;
+        this.missionActive = false;
         this.initialDialogQueue = [];
         this.currentDialogIndex = 0;
-
-        // Pour les niveaux avec séquences par fragment
         this.checkpoints = [];
         this.currentSegmentIndex = 0;
-
-        // Références aux modules UI (à initialiser via des méthodes ou au constructeur)
-        // Ces références seront utilisées pour appeler des fonctions comme commandPanelUI.updateButtonStates(...)
         this.commandPanelAPI = null;
         this.simulationAPI = null;
-        this.dialogAPI = { showDialog, hideDialog }; // Accès direct aux fonctions du module dialog
-
-        // Initialisation des gestionnaires d'événements (si on utilise un EventBus)
-        // this.setupEventListeners();
+        this.dialogAPI = { showDialog, hideDialog };
+        console.log("GameController: Instance created.");
     }
 
-    // Méthode pour que main.js injecte les API des modules UI
     registerUIModules(commandPanelAPI, simulationAPI) {
         this.commandPanelAPI = commandPanelAPI;
         this.simulationAPI = simulationAPI;
+        console.log("GameController: UI Modules registered.", { commandPanelAPI, simulationAPI });
+    }
+
+    isMissionActive() {
+        return this.missionActive;
+    }
+
+    handleResize() {
+        if (this.simulationAPI && this.isMissionActive()) {
+            this.simulationAPI.handleResize();
+            this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
+        }
     }
 
     async startGame() {
-        // Pour l'instant, charge le premier niveau.
-        // Plus tard, cela pourrait charger depuis localStorage ou une sélection de niveau.
+        console.log("GameController: startGame called.");
         await this.loadLevel(this.currentLevelId);
     }
 
     async loadLevel(levelId) {
+        console.log(`GameController: Attempting to load level ${levelId}.`);
         this.isSimulating = false;
-        this.missionActive = false; // La mission n'est pas active tant que les dialogues initiaux ne sont pas passés
+        this.missionActive = false;
+        this.currentSegmentIndex = 0;
+        this.checkpoints = [];
+
         try {
-            const levelModule = await import(`../../levels/level${levelId}.js`); // Ajustez le chemin si nécessaire
-            this.currentLevelData = levelModule[`level${levelId}Data`]; // ex: level1Data
+            const levelModulePath = `../../levels/level${levelId}.js`;
+            console.log(`GameController: Importing level module from path: ${levelModulePath}`);
+            const levelModule = await import(levelModulePath);
+            console.log("GameController: Level module imported:", levelModule);
+
+            this.currentLevelData = levelModule[`level${levelId}Data`];
+
             if (!this.currentLevelData) {
-                throw new Error(`Données du niveau ${levelId} non trouvées.`);
+                throw new Error(`Données du niveau ${levelId} (variable level${levelId}Data) non trouvées dans le module importé.`);
             }
+            console.log(`GameController: Level ${levelId} data loaded successfully:`, this.currentLevelData);
 
-            this.currentLevelId = levelId; // Mettre à jour l'ID du niveau actuel
-            this.initializeLevelState(); // Prépare rover, fragments etc.
+            this.currentLevelId = levelId;
+            this.initializeLevelState();
+            console.log("GameController: Level state initialized.");
 
-            // Préparer la file d'attente des dialogues initiaux
             this.initialDialogQueue = this.currentLevelData.dialoguesInitiaux ? [...this.currentLevelData.dialoguesInitiaux] : [];
             this.currentDialogIndex = 0;
+            console.log("GameController: Initial dialog queue prepared:", this.initialDialogQueue);
 
             if (this.simulationAPI) {
+                console.log("GameController: Initializing simulation canvas and drawing initial state.");
                 this.simulationAPI.initializeCanvas(this.currentLevelData.gridWidth, this.currentLevelData.gridHeight);
-                // Dessiner l'état initial mais ne pas encore afficher l'objectif principal si des dialogues sont prévus
                 this.simulationAPI.drawInitialState(this.rover, this.fragments, this.currentLevelData.labPosition);
                 this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
-            }
-            if (this.commandPanelAPI) {
-                this.commandPanelAPI.clearSequence();
-                // Les boutons du commandPanel seront désactivés jusqu'à la fin des dialogues initiaux
-                this.updateCommandPanelUIState({ initialDialogActive: this.initialDialogQueue.length > 0 });
+            } else {
+                console.error("GameController: simulationAPI is not available for canvas initialization!");
             }
 
-            // Démarrer la séquence de dialogues initiaux si elle existe
+            if (this.commandPanelAPI) {
+                console.log("GameController: Clearing command panel sequence.");
+                this.commandPanelAPI.clearSequence();
+            } else {
+                console.error("GameController: commandPanelAPI is not available for clearing sequence!");
+            }
+            
+            console.log("GameController: Updating command panel UI state before dialogs.");
+            this.updateCommandPanelUIState();
+
             if (this.initialDialogQueue.length > 0) {
+                console.log("GameController: Showing next initial dialog.");
                 this.showNextInitialDialog();
             } else {
-                this.activateMission(); // Activer directement si pas de dialogues initiaux
+                console.log("GameController: No initial dialogs, activating mission directly.");
+                this.activateMission();
             }
         } catch (error) {
-            console.error(`Erreur lors du chargement du niveau ${levelId}:`, error);
-            this.dialogAPI.showDialog({
-                type: DIALOG_TYPES.CONSOLE,
-                title: "Erreur Critique",
-                message: `Impossible de charger le niveau ${levelId}. Vérifiez la console.`
-            });
+            console.error(`Erreur DÉTAILLÉE lors du chargement du niveau ${levelId}:`, error);
+            console.error("Erreur name:", error.name);
+            console.error("Erreur message:", error.message);
+            console.error("Erreur stack:", error.stack);
+            if (this.dialogAPI && typeof this.dialogAPI.showDialog === 'function') {
+                this.dialogAPI.showDialog({
+                    type: DIALOG_TYPES.CONSOLE,
+                    title: "Erreur Critique de Chargement",
+                    message: `Impossible de charger le niveau ${levelId}. Détail: ${error.message}. Vérifiez la console pour plus d'informations techniques.`
+                });
+            } else {
+                alert(`Erreur critique (dialogAPI non disponible): Impossible de charger le niveau ${levelId}. Message: ${error.message}`);
+            }
         }
     }
 
     showNextInitialDialog() {
+        console.log(`GameController: showNextInitialDialog called. Current index: ${this.currentDialogIndex}, Queue length: ${this.initialDialogQueue.length}`);
         if (this.currentDialogIndex < this.initialDialogQueue.length) {
             const dialogData = this.initialDialogQueue[this.currentDialogIndex];
-
+            console.log("GameController: Displaying dialog:", dialogData);
             this.dialogAPI.showDialog({
-                type: dialogData.type, // 'elya', 'isaac', 'console'
-                title: this.getTitleForDialogType(dialogData.type), // Utilise une fonction pour le titre
+                type: dialogData.type,
+                title: this.getTitleForDialogType(dialogData.type),
                 message: dialogData.message,
                 actions: [{
                     text: (this.currentDialogIndex === this.initialDialogQueue.length - 1) ? "Commencer la mission" : "Suivant...",
                     action: () => {
+                        console.log("GameController: Dialog action - Next/Commencer mission.");
                         this.currentDialogIndex++;
-                        this.dialogAPI.hideDialog(); // Cacher le dialogue actuel
-                        this.showNextInitialDialog(); // Afficher le suivant ou activer la mission
+                        this.dialogAPI.hideDialog();
+                        this.showNextInitialDialog();
                     },
                     className: 'bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-md mx-1 orbitron'
                 }]
             });
         } else {
+            console.log("GameController: All initial dialogs shown, attempting to activate mission.");
             this.activateMission();
         }
     }
 
     getTitleForDialogType(type) {
+        // ... (contenu existant)
         switch(type) {
             case DIALOG_TYPES.ELYA: return "Message d'Elya";
-            case DIALOG_TYPES.ISAAC: return "Journal d'Isaac"; // Supposant que vous pourriez avoir un DIALOG_TYPES.ISAAC
+            case DIALOG_TYPES.ISAAC: return "Journal d'Isaac";
             case DIALOG_TYPES.CONSOLE: return "Console Ermes";
-            default: return "Message"; // Fallback
+            default: return "Message";
         }
     }
 
     activateMission() {
+        console.log("GameController: activateMission called.");
         this.missionActive = true;
         if (this.simulationAPI) {
-            this.simulationAPI.updateStatus(this.currentLevelData.missionObjective || `Niveau ${this.currentLevelId}. Prêt.`);
+            console.log("GameController: simulationAPI is available in activateMission.");
+            if (this.currentLevelData.gameplayMode === 'sequencePerFragment') {
+                this.updateObjectiveMessageForSegment();
+            } else {
+                 this.simulationAPI.updateStatus(this.currentLevelData.missionObjective || `Niveau ${this.currentLevelId}. Prêt.`);
+            }
+        } else {
+            console.error("GameController: simulationAPI is NULL in activateMission!");
         }
-        if (this.currentLevelData.gameplayMode === 'sequencePerFragment') {
-            this.updateObjectiveMessageForSegment();
-        }
-        this.updateCommandPanelUIState(); // Met à jour l'état des boutons maintenant que la mission est active
+        this.updateCommandPanelUIState();
+        console.log("GameController: Mission activated and UI updated.");
     }
 
     initializeLevelState() {
+        // ... (contenu existant)
         this.rover = createRover(this.currentLevelData.initialRoverConfig);
         this.fragments = createFragments(
             this.currentLevelData.fragmentConfig,
@@ -164,16 +190,18 @@ export class GameController {
         this.totalFragmentsToCollectThisLevel = this.currentLevelData.totalFragmentsRequired;
         this.checkpoints = [];
         this.currentSegmentIndex = 0;
-        this.missionActive = false; // La mission ne devient active qu'après les dialogues initiaux
-        this.isSimulating = false; // Important pour réinitialiser l'état de simulation
+        this.missionActive = false; 
+        this.isSimulating = false;
 
-        if (this.currentLevelData.gameplayMode === 'sequencePerFragment') {
-            this.updateObjectiveMessageForSegment();
-        }
+        this.fragments.forEach((frag, index) => {
+            if (typeof frag.displayId === 'undefined') {
+                frag.displayId = index + 1;
+            }
+        });
     }
 
     getGameState() {
-        // Méthode pour que le CommandPanel puisse connaître l'état actuel
+        // ... (contenu existant)
         return {
             missionActive: this.missionActive,
             isSimulating: this.isSimulating,
@@ -187,15 +215,17 @@ export class GameController {
         };
     }
 
-    updateCommandPanelUIState(overrideStates = {}) {
+    updateCommandPanelUIState() {
         if (this.commandPanelAPI) {
-            const baseState = this.getGameState();
-            const finalState = { ...baseState, ...overrideStates };
-            this.commandPanelAPI.updateButtonStates(finalState);
+            // console.log("GameController: Updating command panel UI with state:", this.getGameState());
+            this.commandPanelAPI.updateButtonStates(this.getGameState());
+        } else {
+            console.warn("GameController: commandPanelAPI not available when trying to updateCommandPanelUIState.");
         }
     }
 
     updateObjectiveMessageForSegment() {
+        // ... (contenu existant)
         if (!this.currentLevelData || this.currentLevelData.gameplayMode !== 'sequencePerFragment' || !this.simulationAPI) return;
 
         const targets = this.currentLevelData.segmentTargets;
@@ -208,31 +238,29 @@ export class GameController {
             targetDescription = "le Laboratoire";
         } else if (targetKey && targetKey.startsWith('fragment_')) {
             const fragmentIndex = parseInt(targetKey.split('_')[1]);
-            if (this.fragments[fragmentIndex]) {
-                targetDescription = `Fragment ${fragmentIndex + 1} (en ${this.fragments[fragmentIndex].x},${this.fragments[fragmentIndex].y})`;
+            const targetFragment = this.fragments[fragmentIndex];
+            if (targetFragment) {
+                 targetDescription = `Fragment ${targetFragment.displayId || fragmentIndex + 1} (en ${targetFragment.x},${targetFragment.y})`;
             } else {
-                targetDescription = `Fragment ${fragmentIndex + 1}`;
+                targetDescription = `Fragment Inconnu ${fragmentIndex + 1}`;
             }
         }
+        console.log(`GameController: Updating objective message for segment. Target: ${targetDescription}`);
         this.simulationAPI.updateStatus(`Programmez la séquence vers ${targetDescription}.`);
     }
 
-
-    // --- Gestionnaires d'actions reçues du CommandPanel ---
     handleStartSimulation(sequence) {
+        // ... (contenu existant avec logs si besoin)
         if (this.isSimulating || !this.missionActive) {
-            // Si on clique sur "Commencer Mission" (mode direct) et que la mission n'est pas encore active (dialogues initiaux)
-            // Cela ne devrait pas arriver car le bouton sera désactivé par updateCommandPanelUIState.
-            // Mais si c'est le cas, on ne fait rien.
-            console.warn("handleStartSimulation called while mission not active or already simulating.");
+            console.warn("GameController: handleStartSimulation called while mission not active or already simulating.");
             return;
         }
+        console.log("GameController: handleStartSimulation initiated. Mode:", this.currentLevelData.gameplayMode);
 
         const mode = this.currentLevelData.gameplayMode;
 
         if (mode === 'directControl') {
-            this.isSimulating = true; // La "simulation" est le mode de pilotage actif
-            // Le CommandPanel gère l'activation des boutons D-Pad
+            this.isSimulating = true; 
             this.simulationAPI.updateStatus("Pilotage direct activé. Utilisez les commandes.");
         } else if (mode === 'sequencePerFragment' || mode === 'fullSequence') {
             if (!sequence || sequence.length === 0) {
@@ -249,7 +277,12 @@ export class GameController {
     }
 
     handleResetProgram() {
-        if (!this.missionActive) return;
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: handleResetProgram called.");
+        if (!this.missionActive && !(this.currentLevelData.gameplayMode === 'directControl' && this.isSimulating)) {
+            console.warn("GameController: Reset called when mission not active or not in active direct control.");
+            return;
+        }
 
         if (this.currentLevelData.gameplayMode === 'sequencePerFragment' && this.checkpoints.length > 0 && this.currentSegmentIndex > 0) {
             this.dialogAPI.showDialog({
@@ -257,174 +290,202 @@ export class GameController {
                 title: "Confirmation de Réinitialisation",
                 message: "Réinitialiser le segment actuel ou tout le niveau ?",
                 actions: [
-                    { text: "Segment Actuel", action: () => this.resetCurrentSegment(), className: 'bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-md mx-1 orbitron' },
-                    { text: "Niveau Entier", action: () => { this.loadLevel(this.currentLevelId); this.dialogAPI.hideDialog(); }, className: 'bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md mx-1 orbitron' },
+                    { text: "Segment Actuel", action: () => { this.resetCurrentSegment(); this.dialogAPI.hideDialog();}, className: 'bg-yellow-600 hover:bg-yellow-700 text-white font-semibold py-2 px-4 rounded-md mx-1 orbitron' },
+                    { text: "Niveau Entier", action: () => { this.dialogAPI.hideDialog(); this.loadLevel(this.currentLevelId); }, className: 'bg-red-600 hover:bg-red-700 text-white font-semibold py-2 px-4 rounded-md mx-1 orbitron' },
                     { text: "Annuler", action: () => this.dialogAPI.hideDialog(), className: 'bg-gray-500 hover:bg-gray-600 text-white font-semibold py-2 px-4 rounded-md mx-1 orbitron' }
                 ]
             });
         } else {
-            this.loadLevel(this.currentLevelId); // Réinitialisation complète du niveau
+            this.loadLevel(this.currentLevelId); 
         }
         if (this.commandPanelAPI) this.commandPanelAPI.clearSequence();
     }
 
     resetCurrentSegment() {
-        this.isSimulating = false;
-        const lastCheckpoint = this.checkpoints[this.currentSegmentIndex - 1]; // Le checkpoint est pour le segment *précédent*
-        if (lastCheckpoint) {
-            this.rover = createRover(lastCheckpoint.roverState); // Recrée le rover depuis l'état sauvegardé
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: resetCurrentSegment called.");
+        this.isSimulating = false; 
+        const lastCheckpointIndex = this.currentSegmentIndex - 1;
+        
+        if (lastCheckpointIndex >= 0 && this.checkpoints[lastCheckpointIndex]) {
+            const lastCheckpoint = this.checkpoints[lastCheckpointIndex];
+            this.rover = createRover(JSON.parse(JSON.stringify(lastCheckpoint.roverState)));
             this.collectedFragmentsCount = lastCheckpoint.collectedFragments;
-            // Marquer les fragments comme collectés en fonction du checkpoint
             this.fragments.forEach(f => {
                 f.collected = lastCheckpoint.collectedFragmentIds.includes(f.id);
             });
-        } else { // Devrait pas arriver si currentSegmentIndex > 0 et checkpoints existent, mais par sécurité
-            this.initializeLevelState(); // Réinitialisation complète si pas de checkpoint valide
+        } else { 
+            this.rover = createRover(JSON.parse(JSON.stringify(this.currentLevelData.initialRoverConfig)));
+            resetFragments(this.fragments);
+            this.collectedFragmentsCount = 0;
         }
+        resetRoverTrail(this.rover);
 
         if (this.commandPanelAPI) this.commandPanelAPI.clearSequence();
         this.updateObjectiveMessageForSegment();
-        this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
-        this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
+        if (this.simulationAPI) {
+            this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
+            this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
+        }
         this.updateCommandPanelUIState();
-        this.dialogAPI.hideDialog();
     }
 
-
     handleDirectCommand(commandType) {
-        if (this.isSimulating && this.currentLevelData.gameplayMode === 'directControl' && this.missionActive) {
+        // ... (contenu existant)
+        if (this.currentLevelData.gameplayMode === 'directControl' && this.missionActive && this.isSimulating) {
+            // console.log(`GameController: Handling direct command: ${commandType}`);
             this.processSingleCommand(commandType);
-            // Le rendu et la vérification des collisions/fin se font dans processSingleCommand
         }
     }
 
     async executeProgrammedSequence(sequence) {
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: Executing programmed sequence:", sequence);
         this.isSimulating = true;
         this.updateCommandPanelUIState();
         if (this.simulationAPI) this.simulationAPI.updateStatus('Simulation de séquence en cours...');
 
-        // Réinitialiser le rover au début du segment pour 'sequencePerFragment'
         if (this.currentLevelData.gameplayMode === 'sequencePerFragment') {
             if (this.currentSegmentIndex > 0 && this.checkpoints[this.currentSegmentIndex -1]) {
                 const previousCheckpoint = this.checkpoints[this.currentSegmentIndex - 1];
-                this.rover = createRover(previousCheckpoint.roverState);
-                 this.fragments.forEach(f => { // Assurer la cohérence visuelle des fragments collectés
+                this.rover = createRover(JSON.parse(JSON.stringify(previousCheckpoint.roverState)));
+                this.fragments.forEach(f => { 
                     f.collected = previousCheckpoint.collectedFragmentIds.includes(f.id);
                 });
                 this.collectedFragmentsCount = previousCheckpoint.collectedFragments;
-
-            } else { // Premier segment
-                this.rover = createRover(this.currentLevelData.initialRoverConfig);
+            } else { 
+                this.rover = createRover(JSON.parse(JSON.stringify(this.currentLevelData.initialRoverConfig)));
                 resetFragments(this.fragments);
                 this.collectedFragmentsCount = 0;
             }
-            resetRoverTrail(this.rover); // Important: la trace recommence à chaque segment
-            if(this.simulationAPI) {
-                this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
-                this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
-            }
-        } else { // Pour 'fullSequence' (si implémenté plus tard)
-            this.rover = createRover(this.currentLevelData.initialRoverConfig);
+            resetRoverTrail(this.rover);
+        } else { 
+            this.rover = createRover(JSON.parse(JSON.stringify(this.currentLevelData.initialRoverConfig)));
             resetFragments(this.fragments);
             this.collectedFragmentsCount = 0;
-            if(this.simulationAPI) {
-                this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
-                 this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
-            }
+            resetRoverTrail(this.rover);
         }
-
+        
+        if(this.simulationAPI) {
+            this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
+            this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
+        }
 
         for (const commandType of sequence) {
-            if (!this.isSimulating) break; // Permet d'interrompre la simulation
+            if (!this.isSimulating) {
+                console.log("GameController: Simulation interrupted during sequence execution.");
+                break;
+            }
             if (this.simulationAPI) this.simulationAPI.updateStatus(`Exécution: ${COMMAND_DETAILS[commandType]?.text || commandType}`);
             this.processSingleCommand(commandType);
-            await new Promise(resolve => setTimeout(resolve, 350)); // Délai pour la visualisation
+            await new Promise(resolve => setTimeout(resolve, 350)); 
         }
 
-        if (this.isSimulating) { // Si la simulation n'a pas été interrompue
+        if (this.isSimulating) { 
+            console.log("GameController: Sequence finished naturally, checking completion.");
             if (this.currentLevelData.gameplayMode === 'sequencePerFragment') {
                 this.checkSegmentCompletion();
-            } else { // Pour 'directControl' (déjà géré) ou 'fullSequence'
+            } else { 
                 this.checkMissionCompletion();
             }
         }
-        this.isSimulating = false; // Fin de la simulation de cette séquence
+        this.isSimulating = false; 
         this.updateCommandPanelUIState();
     }
 
     processSingleCommand(commandType) {
+        // ... (contenu existant avec logs si besoin)
         const { gridWidth, gridHeight } = this.currentLevelData;
+        let commandExecuted = false;
+
         switch (commandType) {
             case 'cmd_forward':
-                moveRover(this.rover, gridWidth, gridHeight);
+                if (moveRover(this.rover, gridWidth, gridHeight)) {
+                    commandExecuted = true;
+                } else {
+                     if (this.currentLevelData.gameplayMode === 'directControl' && this.isSimulating && this.simulationAPI) { 
+                        this.simulationAPI.updateStatus('Collision avec la bordure ! Mouvement annulé.');
+                     }
+                }
                 break;
             case 'cmd_turn_left':
                 turnRoverLeft(this.rover);
+                commandExecuted = true;
                 break;
             case 'cmd_turn_right':
                 turnRoverRight(this.rover);
+                commandExecuted = true;
                 break;
         }
 
-        const collectedFragmentId = checkFragmentCollision(this.rover, this.fragments);
-        if (collectedFragmentId) {
-            this.collectedFragmentsCount = this.fragments.filter(f => f.collected).length;
-            const fragmentJustCollected = this.fragments.find(f => f.id === collectedFragmentId); // Pour les coordonnées
+        if (commandExecuted) {
+            const collectedFragmentId = checkFragmentCollision(this.rover, this.fragments);
+            if (collectedFragmentId) {
+                const fragmentJustCollected = this.fragments.find(f => f.id === collectedFragmentId);
+                this.collectedFragmentsCount = this.fragments.filter(f => f.collected).length;
+                // console.log(`GameController: Fragment ${fragmentJustCollected.displayId} collected.`);
 
-            // Message de la console Ermes
-            const consoleMessage = `Fragment ${this.collectedFragmentsCount}/${this.totalFragmentsToCollectThisLevel} collecté en (${fragmentJustCollected.x}, ${fragmentJustCollected.y}).`;
-            this.dialogAPI.showDialog({
-                type: DIALOG_TYPES.CONSOLE,
-                title: "Console Ermes - Rapport",
-                message: consoleMessage,
-                // Pas d'actions personnalisées, le bouton "Compris" par défaut suffira et cachera le dialogue
-            });
+                const consoleMessage = `Fragment ${fragmentJustCollected.displayId || this.collectedFragmentsCount}/${this.totalFragmentsToCollectThisLevel} collecté en (${fragmentJustCollected.x}, ${fragmentJustCollected.y}).`;
+                this.dialogAPI.showDialog({
+                    type: DIALOG_TYPES.CONSOLE,
+                    title: "Console Ermes - Rapport",
+                    message: consoleMessage,
+                });
 
-            if (this.simulationAPI) {
-                // this.simulationAPI.updateStatus(`Fragment collecté !`); // Message bref, peut-être redondant avec le dialogue console
-                this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
+                if (this.simulationAPI) {
+                    this.simulationAPI.updateFragmentCount(this.collectedFragmentsCount, this.totalFragmentsToCollectThisLevel);
+                }
             }
-        }
 
-        if (this.simulationAPI) this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
+            if (this.simulationAPI) this.simulationAPI.drawState(this.rover, this.fragments, this.currentLevelData.labPosition);
 
-        // En mode direct, vérifier la complétion de la mission après chaque action, si la mission est active et qu'on n'est pas dans une séquence auto
-        if (this.currentLevelData.gameplayMode === 'directControl' && this.missionActive && !this.isSimulating) {
-            this.checkMissionCompletion();
+            if (this.currentLevelData.gameplayMode === 'directControl' && this.missionActive && this.isSimulating) {
+                this.checkMissionCompletion();
+            }
         }
     }
 
-    // --- Logique de fin de niveau / segment ---
     checkMissionCompletion() {
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: checkMissionCompletion called.");
         const { labPosition, totalFragmentsRequired, completionMessages } = this.currentLevelData;
         const atLab = this.rover.x === labPosition.x && this.rover.y === labPosition.y;
 
         if (atLab) {
             if (this.collectedFragmentsCount >= totalFragmentsRequired) {
+                console.log("GameController: Mission accomplished!");
                 if (this.simulationAPI) this.simulationAPI.updateStatus(completionMessages.success);
-                this.missionActive = false; // Empêche d'autres actions jusqu'à l'analyse/prochain niveau
-                // this.isSimulating = false; // Assurer que la simulation est bien arrêtée
+                this.missionActive = false; 
+                this.isSimulating = false; 
                 this.dialogAPI.showDialog({
                     type: DIALOG_TYPES.ELYA,
                     title: `Mission ${this.currentLevelId} Accomplie !`,
                     message: completionMessages.success
                 });
             } else {
+                console.log("GameController: At lab, but missing fragments.");
                 const message = completionMessages.labMissingFragments.replace('{missing}', totalFragmentsRequired - this.collectedFragmentsCount);
                 if (this.simulationAPI) this.simulationAPI.updateStatus(message);
                 this.dialogAPI.showDialog({ type: DIALOG_TYPES.CONSOLE, title: 'Rapport de Mission', message });
+                if (this.currentLevelData.gameplayMode !== 'directControl') {
+                    this.isSimulating = false;
+                }
             }
         } else {
-            // Si pas au labo mais en mode direct, le jeu continue.
-            // Pour le mode séquence, si la séquence se termine ailleurs, c'est un échec partiel.
             if (this.currentLevelData.gameplayMode !== 'directControl') {
+                 console.log("GameController: Objective not met (not at lab for sequence mode).");
                  if (this.simulationAPI) this.simulationAPI.updateStatus(completionMessages.objectiveNotMet || 'Objectifs non atteints.');
+                 this.isSimulating = false; 
+            } else {
+                // console.log("GameController: Not at lab in direct control mode, mission continues.");
             }
         }
         this.updateCommandPanelUIState();
     }
 
     checkSegmentCompletion() {
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: checkSegmentCompletion called for segment", this.currentSegmentIndex);
         const { labPosition, totalFragmentsRequired, completionMessages, segmentTargets } = this.currentLevelData;
         const currentTargetKey = segmentTargets[this.currentSegmentIndex];
         let targetReached = false;
@@ -437,128 +498,154 @@ export class GameController {
             const fragmentIndex = parseInt(currentTargetKey.split('_')[1]);
             const targetFragment = this.fragments[fragmentIndex];
             if (targetFragment && this.rover.x === targetFragment.x && this.rover.y === targetFragment.y) {
-                // La collision (et donc la collecte) a déjà été gérée dans processSingleCommand
-                targetReached = targetFragment.collected;
+                targetReached = targetFragment.collected; 
             }
         }
 
         if (targetReached) {
-            if (isLabTarget) { // Cible était le laboratoire
+            if (isLabTarget) { 
                 if (this.collectedFragmentsCount >= totalFragmentsRequired) {
+                    console.log("GameController: Segment 'lab' complete, mission accomplished!");
                     if (this.simulationAPI) this.simulationAPI.updateStatus(completionMessages.success);
                     this.missionActive = false;
+                    this.isSimulating = false;
                     this.dialogAPI.showDialog({
                         type: DIALOG_TYPES.ELYA,
                         title: `Mission ${this.currentLevelId} Accomplie !`,
                         message: completionMessages.success
                     });
-                } else { // Au labo mais fragments manquants (ne devrait pas arriver si les segments sont bien définis)
+                } else { 
+                    console.log("GameController: Segment 'lab' reached, but missing fragments.");
                     const message = completionMessages.labMissingFragments.replace('{missing}', totalFragmentsRequired - this.collectedFragmentsCount);
                     if (this.simulationAPI) this.simulationAPI.updateStatus(message);
                     this.dialogAPI.showDialog({ type: DIALOG_TYPES.CONSOLE, title: 'Rapport de Segment', message });
+                    this.isSimulating = false; 
                 }
-            } else { // Cible était un fragment
-                const fragmentNumber = parseInt(currentTargetKey.split('_')[1]) + 1;
+            } else { 
+                const fragmentJustReached = this.fragments.find(f => f.id.endsWith(currentTargetKey.split('_')[1]));
+                const fragmentNumberDisplay = fragmentJustReached ? fragmentJustReached.displayId : (parseInt(currentTargetKey.split('_')[1]) + 1);
+                console.log(`GameController: Fragment segment ${fragmentNumberDisplay} complete.`);
+
                 const nextTargetIndex = this.currentSegmentIndex + 1;
                 let nextTargetDesc = "";
                 if (nextTargetIndex < segmentTargets.length) {
                     const nextKey = segmentTargets[nextTargetIndex];
                     if (nextKey === 'lab') nextTargetDesc = "le Laboratoire";
-                    else nextTargetDesc = `Fragment ${parseInt(nextKey.split('_')[1]) + 1}`;
+                    else {
+                        const nextFragIndex = parseInt(nextKey.split('_')[1]);
+                        const nextFrag = this.fragments[nextFragIndex];
+                        nextTargetDesc = `Fragment ${nextFrag ? nextFrag.displayId : nextFragIndex + 1}`;
+                    }
                 }
 
                 const checkpointMsg = completionMessages.checkpointReached
-                    .replace('{fragmentNumber}', fragmentNumber)
-                    .replace('{nextTarget}', nextTargetDesc);
+                    .replace('{fragmentNumber}', fragmentNumberDisplay)
+                    .replace('{nextTarget}', nextTargetDesc || "la destination finale");
 
                 if (this.simulationAPI) this.simulationAPI.updateStatus(checkpointMsg);
                 this.dialogAPI.showDialog({ type: DIALOG_TYPES.CONSOLE, title: "Checkpoint !", message: checkpointMsg });
 
                 this.checkpoints.push({
                     segmentIndex: this.currentSegmentIndex,
-                    roverState: JSON.parse(JSON.stringify(this.rover)), // Sauvegarde de l'état profond du rover
+                    roverState: JSON.parse(JSON.stringify(this.rover)), 
                     collectedFragments: this.collectedFragmentsCount,
                     collectedFragmentIds: this.fragments.filter(f => f.collected).map(f => f.id)
                 });
                 this.currentSegmentIndex++;
                 if (this.commandPanelAPI) this.commandPanelAPI.clearSequence();
+                this.isSimulating = false;
 
                 if (this.currentSegmentIndex < segmentTargets.length) {
                     this.updateObjectiveMessageForSegment();
-                } else { // Tous segments terminés, mais pas encore la vérification finale du labo (géré par le targetKey === 'lab')
-                     if (this.simulationAPI) this.simulationAPI.updateStatus("Tous les segments programmés terminés.");
+                } else { 
+                     if (this.simulationAPI) this.simulationAPI.updateStatus("Tous les segments prévus terminés.");
                 }
             }
-        } else { // Cible du segment non atteinte
+        } else { 
+             console.log("GameController: Segment objective not met.");
              if (this.simulationAPI) this.simulationAPI.updateStatus(completionMessages.objectiveNotMet || 'Objectif du segment non atteint.');
+             this.isSimulating = false; 
         }
         this.updateCommandPanelUIState();
     }
 
-
     areAllObjectivesMetForAnalysis() {
-        if (!this.currentLevelData || this.missionActive) return false; // Pas d'analyse si mission en cours
+        // ... (contenu existant)
+        if (!this.currentLevelData || this.missionActive) return false;
 
         const { labPosition, totalFragmentsRequired, gameplayMode, segmentTargets } = this.currentLevelData;
         const atLab = this.rover.x === labPosition.x && this.rover.y === labPosition.y;
         const allFragmentsCollected = this.collectedFragmentsCount >= totalFragmentsRequired;
 
         if (gameplayMode === 'sequencePerFragment') {
-            // Pour l'analyse, il faut que le dernier segment (vers le labo) soit complété et que tous les fragments soient là
             return this.currentSegmentIndex >= segmentTargets.length && atLab && allFragmentsCollected;
         }
-        // Pour les autres modes (directControl, fullSequence)
         return atLab && allFragmentsCollected;
     }
-
     
     handleAnalyzeFragments() {
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: handleAnalyzeFragments called.");
+        if (!this.areAllObjectivesMetForAnalysis()) {
+            if (this.commandPanelAPI) this.commandPanelAPI.setAnalyzeSpinner(false);
+            this.dialogAPI.showDialog({ type: DIALOG_TYPES.CONSOLE, title: "Analyse Impossible", message: "Les conditions pour l'analyse ne sont pas remplies (tous fragments collectés et au laboratoire)." });
+            return;
+        }
+
         if (this.commandPanelAPI) this.commandPanelAPI.setAnalyzeSpinner(true);
         if (this.simulationAPI) this.simulationAPI.updateStatus('Analyse des fragments en cours...');
 
-        // Utiliser le texte prédéfini du niveau au lieu d'un appel API
-        setTimeout(() => { // Garder un petit délai pour simuler un traitement
+        setTimeout(() => { 
             const analysisText = this.currentLevelData.elyaAnalysisText ||
-                                 DEFAULT_ELYA_MESSAGES[this.currentLevelId - 1] || // Fallback général
-                                 "Analyse des fragments terminée.";                 // Fallback ultime
-
+                                 (this.currentLevelId > 0 && this.currentLevelId <= DEFAULT_ELYA_MESSAGES.length ? DEFAULT_ELYA_MESSAGES[this.currentLevelId - 1] : null) ||
+                                 "Analyse des fragments terminée. Aucune donnée spécifique pour ce niveau.";
+            console.log("GameController: Displaying analysis result.");
             this.dialogAPI.showDialog({
                 type: DIALOG_TYPES.ELYA,
                 title: `Rapport d'Elya - Niveau ${this.currentLevelId}`,
-                message: analysisText
+                message: analysisText,
+                actions: [{ text: "Mission Suivante", action: () => { this.dialogAPI.hideDialog(); this.proceedToNextLevel(); } }]
             });
 
             if (this.commandPanelAPI) this.commandPanelAPI.setAnalyzeSpinner(false);
-            this.proceedToNextLevel();
-        }, 1000); // Réduire le délai car il n'y a plus d'appel réseau
+        }, 1000); 
     }
     
-
     proceedToNextLevel() {
+        // ... (contenu existant avec logs si besoin)
+        console.log("GameController: proceedToNextLevel called. Current level was:", this.currentLevelId);
         this.currentLevelId++;
-        // TODO: Vérifier s'il y a plus de niveaux disponibles
-        // Pour l'instant, on suppose qu'il y a toujours un niveau suivant ou une fin.
-        const maxLevels = 2; // À définir en fonction du nombre de fichiers de niveau
-        if (this.currentLevelId <= maxLevels) {
-            this.dialogAPI.showDialog({
-                type: DIALOG_TYPES.CONSOLE,
-                title: "Progression",
-                message: `Chargement du niveau ${this.currentLevelId}...`
+        console.log("GameController: Attempting to load next level:", this.currentLevelId);
+        
+        import(`../../levels/level${this.currentLevelId}.js`)
+            .then(module => {
+                if (module[`level${this.currentLevelId}Data`]) {
+                    console.log(`GameController: Data for level ${this.currentLevelId} found.`);
+                    this.dialogAPI.showDialog({
+                        type: DIALOG_TYPES.CONSOLE,
+                        title: "Progression",
+                        message: `Chargement du niveau ${this.currentLevelId}...`,
+                    });
+                    setTimeout(() => {
+                        if(this.dialogAPI) this.dialogAPI.hideDialog();
+                        this.loadLevel(this.currentLevelId);
+                    }, 1500);
+                } else {
+                     console.warn(`GameController: Fichier de niveau level${this.currentLevelId}.js trouvé mais n'exporte pas level${this.currentLevelId}Data.`);
+                     throw new Error("Données de niveau non exportées correctement."); 
+                }
+            })
+            .catch(error => { 
+                console.log(`GameController: Niveau ${this.currentLevelId} non trouvé ou erreur de chargement. Fin des missions. Erreur:`, error.message);
+                if (this.simulationAPI) this.simulationAPI.updateStatus('Toutes les missions sont terminées ! Bravo !');
+                this.dialogAPI.showDialog({
+                    type: DIALOG_TYPES.ELYA,
+                    title: "Fin de la Mission Zéro",
+                    message: "Félicitations, Commandant ! Vous avez complété toutes les missions de la Phase Zéro. Ermès est prêt pour des explorations plus lointaines et complexes."
+                });
+                this.missionActive = false;
+                this.isSimulating = false;
+                this.updateCommandPanelUIState();
             });
-            setTimeout(() => {
-                this.dialogAPI.hideDialog();
-                this.loadLevel(this.currentLevelId);
-            }, 2000);
-        } else {
-             if (this.simulationAPI) this.simulationAPI.updateStatus('Toutes les missions sont terminées ! Bravo !');
-            this.dialogAPI.showDialog({
-                type: DIALOG_TYPES.ELYA,
-                title: "Fin de la Mission Zéro",
-                message: "Félicitations, Commandant ! Vous avez complété toutes les missions de la Phase Zéro. Ermès est prêt pour des explorations plus lointaines et complexes."
-            });
-            this.missionActive = false;
-            this.isSimulating = false; // Assurer que tout est arrêté
-            this.updateCommandPanelUIState(); // Mettra à jour les boutons pour refléter la fin
-        }
     }
 }

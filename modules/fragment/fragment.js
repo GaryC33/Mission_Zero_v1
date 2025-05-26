@@ -2,15 +2,20 @@
 
 /**
  * Crée et retourne un tableau d'objets fragments basé sur la configuration du niveau.
- * @param {object} fragmentConfig - La configuration des fragments pour le niveau (ex: { type: 'random', count: 2, color: '...', avoid: [...] } ou { type: 'fixed', positions: [...] }).
+ * @param {object} fragmentConfig - La configuration des fragments pour le niveau.
  * @param {number} gridWidth - La largeur de la grille du niveau.
  * @param {number} gridHeight - La hauteur de la grille du niveau.
- * @param {Array<object>} initialAvoidPositions - Un tableau de positions initiales à éviter (ex: position de départ du rover, position du labo).
- * @returns {Array<object>} Un tableau d'objets fragments, chacun avec { id, x, y, collected, color }.
+ * @param {Array<object>} initialAvoidPositions - Un tableau de positions initiales à éviter.
+ * @returns {Array<object>} Un tableau d'objets fragments.
  */
 export function createFragments(fragmentConfig, gridWidth, gridHeight, initialAvoidPositions = []) {
     const newFragments = [];
     const defaultColor = '#F6E05E'; // Jaune par défaut si non spécifié
+
+    if (!fragmentConfig) {
+        console.error("Configuration des fragments manquante.");
+        return [];
+    }
 
     if (fragmentConfig.type === 'random') {
         const avoidPositions = [...initialAvoidPositions]; // Copie pour pouvoir ajouter les fragments déjà placés
@@ -26,7 +31,8 @@ export function createFragments(fragmentConfig, gridWidth, gridHeight, initialAv
 
             if (!isInvalidPosition) {
                 newFragments.push({
-                    id: `frag-${newFragments.length}`, // ID unique pour chaque fragment
+                    id: `frag-rand-${newFragments.length}`, // ID unique pour la logique interne
+                    displayId: newFragments.length + 1, // ID convivial pour l'affichage
                     x,
                     y,
                     collected: false,
@@ -40,13 +46,12 @@ export function createFragments(fragmentConfig, gridWidth, gridHeight, initialAv
 
         if (newFragments.length < fragmentConfig.count) {
             console.warn(`Avertissement: Impossible de placer tous les ${fragmentConfig.count} fragments aléatoires sans collision après ${maxAttempts} tentatives. ${newFragments.length} fragments placés.`);
-            // On pourrait ajouter une logique de secours ici si nécessaire,
-            // par exemple, placer les fragments restants à des positions fixes valides.
         }
     } else if (fragmentConfig.type === 'fixed' && fragmentConfig.positions) {
         fragmentConfig.positions.forEach((pos, index) => {
             newFragments.push({
-                id: `frag-${index}`,
+                id: `frag-fixed-${index}`, // ID unique pour la logique interne
+                displayId: index + 1, // ID convivial pour l'affichage
                 x: pos.x,
                 y: pos.y,
                 collected: false,
@@ -54,7 +59,7 @@ export function createFragments(fragmentConfig, gridWidth, gridHeight, initialAv
             });
         });
     } else {
-        console.error("Configuration des fragments invalide ou manquante.");
+        console.error("Configuration des fragments invalide ou type non supporté.");
     }
 
     return newFragments;
@@ -73,7 +78,7 @@ export function checkFragmentCollision(rover, fragmentsArray) {
     for (const fragment of fragmentsArray) {
         if (!fragment.collected && rover.x === fragment.x && rover.y === fragment.y) {
             fragment.collected = true;
-            return fragment.id; // Retourne l'ID du fragment qui vient d'être collecté
+            return fragment.id; // Retourne l'ID interne du fragment qui vient d'être collecté
         }
     }
     return null; // Aucun nouveau fragment collecté

@@ -216,11 +216,12 @@ function handleResize() {
     const panelPaddingLeft = parseFloat(panelStyle.paddingLeft);
     const panelPaddingRight = parseFloat(panelStyle.paddingRight);
 
-    const titleHeight = simulationTitleEl.offsetHeight + parseFloat(getComputedStyle(simulationTitleEl).marginBottom);
+    // Utiliser la variable simulationTitleEl du module, initialisée dans initializeSimulationElements
+    const titleHeight = simulationTitleEl ? (simulationTitleEl.offsetHeight + parseFloat(getComputedStyle(simulationTitleEl).marginBottom)) : 0;
+
     const statusHeight = simulationStatusEl.offsetHeight + parseFloat(getComputedStyle(simulationStatusEl).marginTop);
     const fragmentsUiHeight = collectedFragmentsUIEl.offsetHeight + parseFloat(getComputedStyle(collectedFragmentsUIEl).marginTop);
     const canvasContainerMarginBottom = parseFloat(containerStyle.marginBottom);
-
 
     const availableWidthForCanvas = canvasContainer.parentElement.clientWidth - panelPaddingLeft - panelPaddingRight;
     const availableHeightForCanvas = canvasContainer.parentElement.clientHeight - panelPaddingTop - panelPaddingBottom - titleHeight - statusHeight - fragmentsUiHeight - canvasContainerMarginBottom;
@@ -238,23 +239,11 @@ function handleResize() {
     canvas.width = currentGridWidth * currentTileSize;
     canvas.height = currentGridHeight * currentTileSize;
 
-    // Redessiner la grille après le redimensionnement (l'état complet sera redessiné par le GameController si besoin)
-    // drawGrid();
-    // Pour forcer un redessin complet de l'état actuel du jeu :
-    if (gameControllerInstance && gameControllerInstance.isMissionActive()) { // Vérifier si une mission est active
-         gameControllerInstance.redrawCurrentState(); // Le GameController doit avoir une méthode pour ça
-    } else {
-        drawGrid(); // Dessine au moins la grille vide si pas de mission active
-    }
+    // Redessiner uniquement la grille ici.
+    // Le GameController se chargera de redessiner l'état complet du jeu (rover, fragments, etc.)
+    // en appelant simulationAPI.drawState(...) après que handleResize ait été exécuté.
+    drawGrid();
 }
-
-// Variable globale temporaire pour accéder au gameController depuis la console pour le débogage du redimensionnement.
-// À supprimer ou à mieux gérer dans une application finale.
-let gameControllerInstance = null;
-export function _setGameControllerForSimulation(gc) { // Fonction non standard pour l'injection
-    gameControllerInstance = gc;
-}
-
 
 // Exporter l'API du module
 export { loadSimulationPanel };
